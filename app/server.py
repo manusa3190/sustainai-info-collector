@@ -9,15 +9,19 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import initialize_agent, Tool, AgentType
 from langchain_community.llms import GradientLLM
 
-import moe_scrape
-import asyncio
-
 import sqlite3
-
+from datetime import datetime, timedelta
 
 from openai import OpenAI
 
-client = OpenAI()
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 completion = client.chat.completions.create(
     model="gpt-3.5-turbo-0125",
@@ -30,46 +34,30 @@ completion = client.chat.completions.create(
 
 app = FastAPI()
 
-def scrape_env_news():
-    pass
+def getRecentlyArticles():
+    '''一週間以内に取得したデータを返します'''
+    now = datetime.now()
+    one_week_ago = now - timedelta(days=7)
 
-env_news_tool = Tool(
-    name="環境省ニュース",
-    func=scrape_env_news,
-    description="環境省のホームページから過去3日分のニュース記事を取得します"
-)
+    # データベースに接続してクエリを実行
+    with sqlite3.connect('articles.db') as conn:
+        c = conn.cursor()
+        c.execute('''
+            SELECT * FROM articles
+            WHERE release_date >= ?
+        ''', (one_week_ago.isoformat(),))
 
-def get_top_5():
-    # 本来は"https://funky802.com/hot100/"から呼び出す。ここではダミーデータを返す
-    """ヒット曲のランキングを取得して返します"""
-    ranks = [
-        {'rank': 1, 'title': 'I wonder', 'artist': 'Da-iCE'},
-        {'rank': 2, 'title': '会いに行くのに', 'artist': 'あいみょん'},
-        {'rank': 3, 'title': '毎日', 'artist': '米津玄師'},
-        {'rank': 4, 'title': 'CYAN', 'artist': 'フレデリック'},
-        {'rank': 5, 'title': 'Bling-Bang-Bang-Born', 'artist': 'Creepy Nuts'}
-    ]
-    return ranks
+        # 結果を取得
+        rows = c.fetchall()
 
-def adjust_ranking(ranks, preference):
-    """ユーザーの嗜好に基づいて、ランキングを調整します"""
-    for song in ranks:
-        if song['artist'] == preference:
-            song['rank'] = 1
-        else:
-            song['rank'] += 1
-    return ranks
+    return rows
+
 
 tools = [
     Tool(
-        name="FM802 OSAKAN HOT 100 Top 5",
-        func=get_top_5,
-        description="Get the top 5 songs from FM802 OSAKAN HOT 100"
-    ),
-    Tool(
-        name="Adjust Ranking",
-        func=adjust_ranking,
-        description="Adjust the ranking based on user preference"
+        name="一週間以内に取得したデータを返す",
+        func=getRecentlyArticles,
+        description="一週間以内に取得したデータを返します"
     )
 ]
 
@@ -81,12 +69,6 @@ agent = initialize_agent(
     agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, 
     verbose=True
     )
-
-@app.get("/tops")
-async def get_tops():
-    preference = "あいみょん" # 本来はメモリから呼び出す
-    result = agent.run(f"ヒット曲のランキングを取得してください。{ranks}次に、そのランキングをユーザーの嗜好:{preference}に基づいてランクを調整してください")
-    return result
 
 model = ChatOpenAI(model="gpt-3.5-turbo-0125")
 
@@ -131,4 +113,6 @@ add_routes(
 if __name__ == "__main__":
     # import uvicorn
     # uvicorn.run(app, host="0.0.0.0", port=8000)
+    data = getRecentlyArticles()
+    print(data)
 

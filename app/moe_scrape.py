@@ -7,30 +7,11 @@ from playwright.async_api import async_playwright, ElementHandle
 import requests
 from bs4 import BeautifulSoup
 
-import sqlite3
+from database import Article, save_to_sqlite
+
 
 環境省プレスリリース一覧 = 'https://www.env.go.jp/press/index.html'
 
-
-class News:
-    def __init__(self, release_date:datetime|None, tag:str|None, title:str|None, summary:str|None, body:str):
-        self.release_date = release_date
-        self.tag = tag
-        self.title = title
-        self.summary = summary
-        self.body = body
-
-    def __str__(self):
-        return f'{self.release_date} {self.title} {self.body}'
-
-    def to_dict(self):
-        return {
-            'release_date': self.release_date,
-            'tag': self.tag,
-            'title': self.title,
-            'summary': self.summary,
-            'body': self.body
-        }
 
 def decide_get_press_release() -> bool:
     res = requests.get(環境省プレスリリース一覧)
@@ -69,16 +50,18 @@ def 特定期間のnews_idを取得(期間:int) -> List[str]:
 
     return news_id_list
 
-async def get_news(news_id_list:List[str]) -> List[News]:
-    news_list = []
+async def get_news(article_id_list:List[str]) -> List[Article]:
+    article_list:list[Article] = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         
-        for news_id in news_id_list:
+        for article_id in article_id_list:
+            article = Article()
+
             page = await browser.new_page()
 
-            full_link = f'https://www.env.go.jp{news_id}'
+            full_link = f'https://www.env.go.jp{article_id}'
             await page.goto(full_link)
 
             body_elem = await page.query_selector('.c-component')
@@ -86,47 +69,44 @@ async def get_news(news_id_list:List[str]) -> List[News]:
             if body_elem is None: raise ValueError("記事本文が取得できません")
 
             body = await body_elem.inner_text()
+            article.content = body
 
             release_date_elem = await page.query_selector('.p-press-release-material__date')
             release_date_str = await release_date_elem.inner_text() if release_date_elem is not None else None
             release_date = datetime.strptime(release_date_str, '%Y年%m月%d日') if release_date_str is not None else None
+            article.release_date = release_date
 
             tag_elem = await body_elem.query_selector('.p-news-link__tag')
             tag = await tag_elem.inner_text() if tag_elem is not None else None
+            article.keywords = [tag] if tag is not None else []
 
             title_elem = await body_elem.query_selector('.p-press-release-material__heading')
             title = await title_elem.inner_text() if title_elem is not None else None
+            article.title = title if title is not None else ""
 
             summary_area = await body_elem.query_selector('.c-component__bg-area')
             summary = await summary_area.inner_text() if summary_area is not None else None
+            article.summary = summary
 
-            news_list.append(News(release_date, tag, title, summary, body))
+            article_list.append(article)
     
-    return news_list
+    return article_list
 
-
-def save_news_to_sqlite(news_list:List[News]):
-    columns = ('release_date', 'tag', 'title', 'summary', 'body')
-
-    conn = sqlite3.connect('articles.db')
-    c = conn.cursor()
-
-    c.execute(f'CREATE TABLE IF NOT EXISTS articles ({", ".join([f"{col} text" for col in columns])})')
-
-    placeholders = ", ".join(["?"] * len(columns))
-    for news in news_list:
-        values = [news.to_dict()[col] for col in columns]
-        c.execute(f"INSERT INTO articles VALUES ({placeholders})", values)
-
-    conn.commit()
-    conn.close()
+def get_sqlite_type(field_type):
+    type_map = {
+        datetime: 'TEXT',
+        str: 'TEXT',
+        int: 'INTEGER',
+        list: 'TEXT',
+        type(None): 'TEXT'
+    }
+    return type_map.get(field_type, 'TEXT')
 
     
 def main():
     news_list =  特定期間のnews_idを取得(4)
     news = asyncio.run(get_news(news_list))
-    save_news_to_sqlite(news)
-
+    save_to_sqlite(news)
 
 if __name__ == '__main__':
     main()
