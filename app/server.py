@@ -12,6 +12,8 @@ from langchain_community.llms import GradientLLM
 import sqlite3
 from datetime import datetime, timedelta
 
+from database import fetch_recent_articles
+
 from openai import OpenAI
 
 import os
@@ -33,6 +35,40 @@ completion = client.chat.completions.create(
 )
 
 app = FastAPI()
+
+# CORSの設定
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Nuxtのデフォルトポート
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/articles")
+async def get_articles():
+    conn = sqlite3.connect('sustainai.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM articles ORDER BY fetch_date DESC")
+    articles = cursor.fetchall()
+    conn.close()
+    
+    # 結果をディクショナリのリストに変換
+    articles_list = []
+    for article in articles:
+        articles_list.append({
+            "id": article[0],
+            "fetch_date": article[1],
+            "source": article[2],
+            "title": article[3],
+            "keywords": article[4],
+            "summary": article[5],
+            "content": article[6],
+            "ai_interest_level": article[7],
+            "user_interest_level": article[8]
+        })
+    
+    return {"articles": articles_list}
 
 def getRecentlyArticles():
     '''一週間以内に取得したデータを返します'''
@@ -88,20 +124,10 @@ prompt = PromptTemplate(
 async def redirect_root_to_docs():
     return RedirectResponse("/docs")
 
-@app.get("/env-news")
-async def res_env_news():
-    # moe_news.dbの中身を取得して返す
-    conn = sqlite3.connect('moe_news.db')
-    c = conn.cursor()
-    c.execute('SELECT * FROM articles')
-    news_list = c.fetchall()
-    conn.close()
-
-    news_list = [dict(zip(['release_date', 'tag', 'title', 'summary', 'body'], news)) for news in news_list]
-
-    print(news_list)
-    return news_list
-
+@app.get("/articles")
+async def articles():
+    rows = fetch_recent_articles(db_path='articles.db',days=7)
+    return rows
 
 
 add_routes(
@@ -111,8 +137,6 @@ add_routes(
 )
 
 if __name__ == "__main__":
-    # import uvicorn
-    # uvicorn.run(app, host="0.0.0.0", port=8000)
-    data = getRecentlyArticles()
-    print(data)
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
