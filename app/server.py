@@ -7,12 +7,16 @@ from langchain.tools import Tool
 from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain.agents import initialize_agent, Tool, AgentType
-from langchain_community.llms import GradientLLM
+
 
 import sqlite3
 from datetime import datetime, timedelta
 
-from database import fetch_recent_articles
+from .database import Article, fetch_recent_articles
+
+from .preferences_model import Preference, setup_database, adjust_score
+
+from dataclasses import dataclass, field, fields
 
 from openai import OpenAI
 
@@ -44,31 +48,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-@app.get("/articles")
-async def get_articles():
-    conn = sqlite3.connect('sustainai.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM articles ORDER BY fetch_date DESC")
-    articles = cursor.fetchall()
-    conn.close()
-    
-    # 結果をディクショナリのリストに変換
-    articles_list = []
-    for article in articles:
-        articles_list.append({
-            "id": article[0],
-            "fetch_date": article[1],
-            "source": article[2],
-            "title": article[3],
-            "keywords": article[4],
-            "summary": article[5],
-            "content": article[6],
-            "ai_interest_level": article[7],
-            "user_interest_level": article[8]
-        })
-    
-    return {"articles": articles_list}
 
 def getRecentlyArticles():
     '''一週間以内に取得したデータを返します'''
@@ -126,14 +105,42 @@ async def redirect_root_to_docs():
 
 @app.get("/articles")
 async def articles():
-    rows = fetch_recent_articles(db_path='articles.db',days=7)
-    return rows
+    field_names = [ f.name for f in fields(Article)]
+    # print(fieldNames)
+    with sqlite3.connect('articles.db') as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM articles")
+        rows = c.fetchall()
 
+        records = [
+            {field_name: value for field_name, value in zip(field_names, row)}
+            for row in rows
+        ]
+        return records
+
+### ユーザーが評価した点数でAIをトレーニング
+@dataclass
+class Item:
+    id:str
+    user_scored_interest_level: str
+
+
+from typing import List
+@app.post("/articles_training/")
+async def articles_training(items:List[Item]):
+    print('received data:',items)
+
+    return 'OK'
+
+### ユーザーが好むor好まないキーワードを保存
+@app.get('/setup_pref')
+async def setup_pref():
+    setup_database('user1')
 
 add_routes(
     app,
     prompt | model,
-    path="/env-news"
+    path="/question"
 )
 
 if __name__ == "__main__":
