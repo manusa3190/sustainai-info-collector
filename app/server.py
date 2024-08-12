@@ -8,15 +8,19 @@ from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain.agents import initialize_agent, Tool, AgentType
 
+from typing import Optional, List, Type, Dict, Union
 
 import sqlite3
 from datetime import datetime, timedelta
 
-from .database import Article, fetch_recent_articles
+# from .database import Article, fetch_recent_articles
+from .Models.articles import Article, setup_database as initialize_articles, fetch_recent_articles, getItems
 
-from .preferences_model import Preference, setup_database, adjust_score
+from .Models.preferences import Preference, setup_database as initialize_preferences, adjust_score
 
 from dataclasses import dataclass, field, fields
+
+import json
 
 from openai import OpenAI
 
@@ -76,7 +80,7 @@ tools = [
     )
 ]
 
-llm = ChatOpenAI(model="gpt-3.5-turbo-0125")
+llm = ChatOpenAI(model="gpt-4o-mini")
 
 agent = initialize_agent(
     tools, 
@@ -85,7 +89,7 @@ agent = initialize_agent(
     verbose=True
     )
 
-model = ChatOpenAI(model="gpt-3.5-turbo-0125")
+model = ChatOpenAI(model="gpt-4o-mini")
 
 template = """
 以下は環境省のニュース記事のリストです:
@@ -102,6 +106,47 @@ prompt = PromptTemplate(
 @app.get("/")
 async def redirect_root_to_docs():
     return RedirectResponse("/docs")
+
+@app.get("/scrape_moe")
+def scrape_moe():
+    print('scrape moe run!')
+    from .Tools.moe_scrape import main
+    main()
+    print('scrape moe done!')
+
+@app.post("/extract_keywords_with_ai")
+async def extract_keywords_with_ai(article_id_list:List[str]):
+    # DBからデータ取り出し"
+    items = getItems('articles', ['moe01','moe02'])
+
+    # プロンプトの作成
+    template = """
+        あなたにニュース記事を渡しますので、キーワードをいくつか抽出してください。
+        記事:{input}
+
+        抽出したキーワードはJSONの配列形式で返してください。マークアップは不要です。
+        例→["環境","水質汚染"]
+    """
+
+    newItems:List[Dict[str, Union[str, List[str]]]] = []
+    for item in items:
+        # AIによるキーワード抽出
+        prompt = PromptTemplate(
+            input_variables=[],
+            template=template
+        )
+
+        chain = prompt | model
+        result = chain.invoke(input=item.content)
+        keywords_str = result.content
+        keywords = json.loads(keywords_str)
+
+        newItems.append({'id':item.id,'keywords':keywords})
+    
+    # DBへ書き込み
+    print(newItems)
+
+    return 12345
 
 @app.get("/articles")
 async def articles():
@@ -135,7 +180,7 @@ async def articles_training(items:List[Item]):
 ### ユーザーが好むor好まないキーワードを保存
 @app.get('/setup_pref')
 async def setup_pref():
-    setup_database('user1')
+    initialize_preferences('user1')
 
 add_routes(
     app,

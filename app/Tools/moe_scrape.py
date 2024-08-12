@@ -1,3 +1,5 @@
+# 環境省から広報記事を取得します
+
 from typing import List
 from datetime import datetime, timedelta
 import re
@@ -7,7 +9,8 @@ from playwright.async_api import async_playwright, ElementHandle
 import requests
 from bs4 import BeautifulSoup
 
-from database import Article, save_to_sqlite
+# from database import Article, save_to_sqlite
+from ..Models.articles import Article, save_to_sqlite
 
 
 環境省プレスリリース一覧 = 'https://www.env.go.jp/press/index.html'
@@ -68,6 +71,8 @@ async def get_news(article_id_list:List[str]) -> List[Article]:
 
             if body_elem is None: raise ValueError("記事本文が取得できません")
 
+            article.id = 'moe' + article_id.replace('/','_')
+
             body = await body_elem.inner_text()
             article.content = body
 
@@ -76,9 +81,9 @@ async def get_news(article_id_list:List[str]) -> List[Article]:
             release_date = datetime.strptime(release_date_str, '%Y年%m月%d日') if release_date_str is not None else None
             article.release_date = release_date
 
-            tag_elem = await body_elem.query_selector('.p-news-link__tag')
-            tag = await tag_elem.inner_text() if tag_elem is not None else None
-            article.keywords = [tag] if tag is not None else []
+            # tag_elem = await body_elem.query_selector('.p-news-link__tag')
+            # tag = await tag_elem.inner_text() if tag_elem is not None else None
+            # article.keywords = [tag] if tag is not None else []
 
             title_elem = await body_elem.query_selector('.p-press-release-material__heading')
             title = await title_elem.inner_text() if title_elem is not None else None
@@ -104,9 +109,9 @@ def get_sqlite_type(field_type):
 
     
 def main():
-    news_list =  特定期間のnews_idを取得(4)
+    news_list =  特定期間のnews_idを取得(5)
     news = asyncio.run(get_news(news_list))
     save_to_sqlite(news)
 
-if __name__ == '__main__':
-    main()
+# if __name__ == '__main__':
+#     main()
