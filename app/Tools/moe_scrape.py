@@ -9,9 +9,11 @@ from playwright.async_api import async_playwright, ElementHandle
 import requests
 from bs4 import BeautifulSoup
 
-# from database import Article, save_to_sqlite
-from ..Models.articles import Article, save_to_sqlite
+from ..Models.database import set_doc
+from ..Models.articles import Article
 
+
+from dataclasses import asdict
 
 環境省プレスリリース一覧 = 'https://www.env.go.jp/press/index.html'
 
@@ -71,7 +73,7 @@ async def get_news(article_id_list:List[str]) -> List[Article]:
 
             if body_elem is None: raise ValueError("記事本文が取得できません")
 
-            article.id = 'moe' + article_id.replace('/','_')
+            article.article_id = 'moe' + article_id.replace('/','_')
 
             body = await body_elem.inner_text()
             article.content = body
@@ -79,7 +81,9 @@ async def get_news(article_id_list:List[str]) -> List[Article]:
             release_date_elem = await page.query_selector('.p-press-release-material__date')
             release_date_str = await release_date_elem.inner_text() if release_date_elem is not None else None
             release_date = datetime.strptime(release_date_str, '%Y年%m月%d日') if release_date_str is not None else None
-            article.release_date = release_date
+            article.publish_date = release_date
+
+            article.source = "環境省"
 
             # tag_elem = await body_elem.query_selector('.p-news-link__tag')
             # tag = await tag_elem.inner_text() if tag_elem is not None else None
@@ -97,21 +101,12 @@ async def get_news(article_id_list:List[str]) -> List[Article]:
     
     return article_list
 
-def get_sqlite_type(field_type):
-    type_map = {
-        datetime: 'TEXT',
-        str: 'TEXT',
-        int: 'INTEGER',
-        list: 'TEXT',
-        type(None): 'TEXT'
-    }
-    return type_map.get(field_type, 'TEXT')
-
     
 def main():
     news_list =  特定期間のnews_idを取得(5)
     news = asyncio.run(get_news(news_list))
-    save_to_sqlite(news)
+    for n in news:
+        set_doc('articles',asdict(n))
 
 # if __name__ == '__main__':
 #     main()

@@ -6,10 +6,15 @@ import json
 
 @dataclass
 class Preference:
-    keyword: str = ""
+    preference_id:str = ""
+    user_id:str = ""
+    article_id = ""
+    ai_score = 0
+    user_score = 0
     created_at:datetime = datetime.now()
     updated_at:datetime = datetime.now()
-    score:int = 0
+    # keyword: str = ""
+    # score:int = 0
 
 
 def get_sqlite_type(field_type: Type) -> str:

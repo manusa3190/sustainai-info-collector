@@ -14,7 +14,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 # from .database import Article, fetch_recent_articles
-from .Models.articles import Article, setup_database as initialize_articles, fetch_recent_articles, getItems
+from .Models.articles import Article, fetch_recent_articles, getItems, updateItem
 
 from .Models.preferences import Preference, setup_database as initialize_preferences, adjust_score
 
@@ -107,6 +107,13 @@ prompt = PromptTemplate(
 async def redirect_root_to_docs():
     return RedirectResponse("/docs")
 
+# 完成
+@app.get("/setup_tables")
+async def setup_tables():
+    from .Models.database import setup_database
+    setup_database()
+
+# 完成
 @app.get("/scrape_moe")
 def scrape_moe():
     print('scrape moe run!')
@@ -114,40 +121,51 @@ def scrape_moe():
     main()
     print('scrape moe done!')
 
+# 完成
 @app.post("/extract_keywords_with_ai")
-async def extract_keywords_with_ai(article_id_list:List[str]):
+async def extract_keywords_with_ai():
     # DBからデータ取り出し"
-    items = getItems('articles', ['moe01','moe02'])
+    from .Models.database import get_docs, set_doc
+    items:List[Article] = get_docs('articles',("keywords","==","[]"))
 
     # プロンプトの作成
     template = """
-        あなたにニュース記事を渡しますので、キーワードをいくつか抽出してください。
-        記事:{input}
+        あなたにニュース記事を渡しますので、キーワードを5つまで抽出してください。
+        
+        # データ
+        記事:{content}
 
-        抽出したキーワードはJSONの配列形式で返してください。マークアップは不要です。
-        例→["環境","水質汚染"]
+        # 出力
+        抽出したキーワードは配列形式で返してください。マークアップは不要です。
+        例:["環境","水質汚染"]
     """
 
-    newItems:List[Dict[str, Union[str, List[str]]]] = []
     for item in items:
+        if(item.content is None):continue
+
         # AIによるキーワード抽出
-        prompt = PromptTemplate(
-            input_variables=[],
+        prompt = PromptTemplate.from_template(
             template=template
         )
 
         chain = prompt | model
         result = chain.invoke(input=item.content)
         keywords_str = result.content
-        keywords = json.loads(keywords_str)
 
-        newItems.append({'id':item.id,'keywords':keywords})
-    
-    # DBへ書き込み
-    print(newItems)
+        set_doc('articles',{'article_id':item.article_id,'keywords':keywords_str})
 
-    return 12345
+    return 'OK'
 
+# ユーザーの嗜好に基づいて、記事をスコアリング
+def set_score_to_articles():
+    # preference.dbのuser1から、そのユーザーの嗜好性（キーワードと±10点のスコア）を取得
+
+    # ユーザーの嗜好性に基づいて、記事をスコアリング
+
+    # DBへの書き込み
+    pass
+
+# articlesを取得
 @app.get("/articles")
 async def articles():
     field_names = [ f.name for f in fields(Article)]

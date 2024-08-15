@@ -1,24 +1,21 @@
 import sqlite3
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timedelta
-from typing import Optional, List, Type
+from typing import Optional, List, Type, Dict, Any
 import json
 
 @dataclass
 class Article:
-    id: str = ""
-    fetch_date: datetime = datetime.now()
-    release_date: Optional[datetime] = None
+    article_id: str = ""
+    acquition_date: datetime = datetime.now()
+    publish_date: Optional[datetime] = None
     source: str = ""
     title: str = ""
     content: str = ""
     keywords: List[str] = field(default_factory=list)
     summary: Optional[str] = None
-    ai_guess_interest_level: int = 1
-    user_scored_interest_level: Optional[int] = None
-
-    def ai_summarize(self):
-        self.summary = self.content[:300]
+    created_at:datetime = datetime.now()
+    updated_at:datetime = datetime.now()
 
 def get_sqlite_type(field_type: Type) -> str:
     type_map = {
@@ -30,18 +27,25 @@ def get_sqlite_type(field_type: Type) -> str:
     }
     return type_map.get(field_type, 'TEXT')
 
-def setup_database(table_name:str):
-    with sqlite3.connect('articles.db') as conn:
-        c = conn.cursor()
+# def setup_database(table_name:str):
+#     with sqlite3.connect('articles.db') as conn:
+#         c = conn.cursor()
 
-        table_fields = fields(Article)
-        column_definitions = [f"{field.name} {get_sqlite_type(field.type)}" for field in table_fields]
+#         table_fields = fields(Article)
+#         column_definitions = [f"{field.name} {get_sqlite_type(field.type)}" for field in table_fields]
 
-        c.execute(f'''
-            CREATE TABLE IF NOT EXISTS {table_name} (
-                {", ".join(column_definitions)}
-            )
-        ''')
+#         c.execute(f'''
+#             CREATE TABLE IF NOT EXISTS {table_name} (
+#                 {", ".join(column_definitions)}
+#             )
+#         ''')
+
+def convert_value(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()  # datetimeをISOフォーマットの文字列に変換
+    elif isinstance(value, list):
+        return json.dumps(value,ensure_ascii=False)  # リストをJSON形式の文字列に変換
+    return value  # その他の型はそのまま返す
 
 def save_to_sqlite(article_list: List[Article]):
     columns = [field.name for field in fields(Article)]
@@ -82,6 +86,17 @@ def fetch_recent_articles(table_name:str,days: int = 7) -> List[Article]:
 
     return articles
 
+def getItem(table_name:str,id:str):
+    select_query = f'''
+        SELECT * FROM {table_name} WHERE id 
+    '''
+
+    with sqlite3.connect('articles.db') as conn:
+        c = conn.cursor()
+
+        c.execute(select_query, ids)
+        records = c.fetchall()
+
 def getItems(table_name:str, ids:List[str]):
     placeholder = ', '.join(['?'] * len(ids))
     select_query = f'''
@@ -112,5 +127,23 @@ def getItems(table_name:str, ids:List[str]):
             articles.append(article)
 
         return articles
+    
 
-        return articles
+def updateItem(table_name:str, data:Dict[str,str]):
+    # 更新するフィールドと対応するプレースホルダーを動的に生成
+    fieldNames = ', '.join([f"{key} = ?" for key in data.keys() if key != 'id'])
+    
+    # クエリの生成 例: UPDATE articles SET keywords = ? WHERE id = ?
+    query = f"UPDATE {table_name} SET {fieldNames} WHERE id = ?"
+    
+    # プレースホルダーに入る値を準備（idは最後に渡す）例: ['["東京湾", "環境一斉調査"]', 'moe01']
+    values = [convert_value(value) for key, value in data.items() if key != 'id']
+    values.append(data['id'])
+    print(values)
+    
+    # データベースの接続を確立してクエリを実行
+    with sqlite3.connect('articles.db') as conn:
+        c = conn.cursor()
+        c.execute(query, values)
+        conn.commit()
+
