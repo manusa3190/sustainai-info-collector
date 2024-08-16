@@ -53,6 +53,8 @@ def 特定期間のnews_idを取得(期間:int) -> List[str]:
             href = link.get('href')
             news_id_list.append(href)
 
+    print(news_id_list)
+
     return news_id_list
 
 async def get_news(article_id_list:List[str]) -> List[Article]:

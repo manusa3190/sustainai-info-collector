@@ -4,6 +4,7 @@ import sqlite3
 from sqlite3 import Cursor
 
 from dataclasses import fields
+import dataclasses
 import json
 
 from .articles import Article
@@ -74,6 +75,7 @@ def set_doc(table_name:str,data:Dict[str,str]):
 
         results = c.execute(f'''SELECT * FROM {table_name} WHERE {key_name} = ?''', (data[key_name],))
         record = results.fetchone()
+        print(record)
 
         if record:
             # 更新するフィールドと対応するプレースホルダーを動的に生成
@@ -93,18 +95,33 @@ def set_doc(table_name:str,data:Dict[str,str]):
             values = [convert_value(value) for value in data.values()]
             c.execute(f"INSERT INTO {table_name} ({fieldNames}) VALUES ({placeholders})", values)
 
-# 【作成中】
+# OK
+def set_docs(table_name:str,data:List[Dict[str,Any]] ):
+    the_class = TABLES[table_name]
+    key_name:str = fields(the_class)[0].name
+
+    fieldNames = ', '.join([f"{key}" for key in data[0].keys()])
+    placeholders = ', '.join([f"?" for key in data[0].keys() ])
+    records = ( tuple(d.values()) for d in data )
+
+    with sqlite3.connect(DB_PATH) as conn:
+        c = conn.cursor()
+        c.executemany(f"INSERT INTO {table_name} ({fieldNames}) VALUES ({placeholders})", records)
+
+
+#  OK
 def get_doc(table_name:str,id:str):
-    target_class = TABLES[table_name]
-    key_name:str = fields(target_class)[0].name
+    the_class = TABLES[table_name]
+    key_name:str = fields(the_class)[0].name
 
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
 
         results = c.execute(f'''SELECT * FROM {table_name} WHERE {key_name} = ?''', (id,))
         record = results.fetchone()
+        d:Dict = {f.name: convert_value(value) for f, value in zip(fields(the_class), record)}
+        return the_class(**d)
 
-        return record # 修正必要
 
 def get_docs(table_name:str,query:Optional[Tuple[str,str,Any]]):
     the_class = TABLES[table_name]
@@ -121,11 +138,14 @@ def get_docs(table_name:str,query:Optional[Tuple[str,str,Any]]):
 
         elif(query[1]=='IN'):
             placeholders = ', '.join([ "?" for e in query[2]])
-            results = c.execute(f'''SELECT * FROM {table_name} WHERE {query[0]} IN ({placeholders})''', (query[2],))
+            results = c.execute(f'''SELECT * FROM {table_name} WHERE {query[0]} IN ({placeholders})''', query[2])
 
         elif(query[1]=='NOT IN'):
-            placeholders = ', '.join([ "?" for e in query[2]])
-            results = c.execute(f'''SELECT * FROM {table_name} WHERE {query[0]} NOT IN ({placeholders})''', (query[2],))
+            if query[2]==[]:
+                results = c.execute(f'''SELECT * FROM {table_name}''')
+            else:
+                placeholders = ', '.join([ f"?" for e in query[2]])
+                results = c.execute(f'''SELECT * FROM {table_name} WHERE {query[0]} NOT IN ({placeholders})''', query[2])
 
         items = []
         for values in results.fetchall():

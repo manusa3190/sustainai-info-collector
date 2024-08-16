@@ -15,7 +15,7 @@ from .Models.articles import Article
 from .Models.users import User
 from .Models.preferences import Preference
 
-from .Models.database import setup_database, get_doc, get_docs, set_doc, update_doc
+from .Models.database import setup_database, get_doc, get_docs, set_doc, set_docs, update_doc
 
 from dataclasses import asdict
 
@@ -96,7 +96,8 @@ async def extract_keywords_with_ai():
     return 'OK'
 
 # ユーザーの嗜好に基づいて、記事をスコアリング
-def set_score_to_articles():
+@app.get("/set_score_to_articles")
+def set_score_to_articles()->None:
     user_id = "user1"
     
     # 記事一覧から、カレントユーザーの嗜好がまだ評価されていない記事を取り出す
@@ -104,9 +105,8 @@ def set_score_to_articles():
     graded_article_ids = [ p.article_id for p in preferences_of_current_user]
     articles:List[Article] = get_docs("articles",("article_id","NOT IN",graded_article_ids))
 
-
     # preference.dbのuser1から、そのユーザーの嗜好性（キーワードと±10点のスコア）を取得
-    user:User = get_doc("preferences",user_id)
+    user:User = get_doc("users",user_id)
     preference = user.preference
     
     # ユーザーの嗜好性に基づいて、記事をスコアリング
@@ -114,24 +114,24 @@ def set_score_to_articles():
     あなたはユーザーの関心事に基づいてニュース記事を採点するAIです。
 
     # 要望
-    ユーザーは大量の記事から、自分にとって関心のある記事だけをフィルターをかけて読みたいと思っています。
-    ユーザーは、普段は0点以上の記事を読みますが、時間がない時にはプラス点数のついた記事だけを読みます。
-    マイナス点数がついた記事は邪魔なので、普段は表示しません。
+    ユーザーは大量の記事から、自分にとって重要な記事だけをフィルターをかけて読みたいと思っています。
+    ユーザーは、普段は3点以上の記事を読みますが、時間がない時には4点以上のついた記事だけを読みます。
+    2点以下がついた記事はユーザーにとって関係性がないので、普段は表示しません。
     このような使い方ができるよう、ユーザーの関心事に合わせて、ニュース記事に採点してください。
 
     # 採点方法
     ユーザーの関心については以下のようなキーワードと関心度合いのペアで渡します。
     例:'地域経済:2,製造業:1,補助金:-2'
-    各キーワードに対する関心度合いは-2,-1,0,1,2の5段階で、プラスは関心があるのでぜひ表示してほしいトピック、マイナスは邪魔なので除外してほしいトピックを示しています。
-    単純に単語の有無で判断するのではなく、意味的な距離や上位・下位概念も加味してください
+    各キーワードに対する関心度合いは-2,-1,0,1,2の5段階で、プラスは関心があるので重要と採点してほしいトピック、マイナスは関係性がないので減点してほしいトピックを示しています。
+    単純に単語の有無で判断するのではなく、意味的な距離や上位・下位概念も加味してください。
 
     # データ
     文章:{content}
     ユーザーの関心:{preference}
 
     # 出力
-    -2から2の5段階評価です。
-    -2はユーザーにとって邪魔なので表示させない、0は中立、2はユーザーにとって重要です。
+    1から5の5段階評価です。
+    1はユーザーにとって関係性が低い、3は中立、2はユーザーにとって重要な記事を意味します。
     数値だけを出力してください
     """
 
@@ -139,25 +139,50 @@ def set_score_to_articles():
 
     chain = prompt | model
 
-    for article in articles:
-        new_pref:Preference = Preference()
+    data = []
+    for i, article in enumerate(articles):
         result = chain.invoke(input={"content":article.content,"preference":preference})
-        new_pref.ai_score = int(str(result.content))
 
-        # DBへの書き込み。本当はまとめてやるべき
-        set_doc("preferences", asdict(new_pref))
+        new_pref:Preference = Preference(
+            preference_id= i ,
+            user_id = user_id,
+            article_id = article.article_id,
+            ai_score = result.content,
+            user_score = None
+        )
+        data.append( asdict(new_pref) )
+
+    # DBへの書き込み
+    set_docs("preferences",data)
 
 
-# articlesを取得。デフォルトはユーザー嗜好が0以上のみ
+#【完成】 articlesを取得。デフォルトはユーザー嗜好が0以上のみ
 @app.get("/articles")
 async def articles(all:Optional[bool] = False):
+    records = []
     user_id = "user1"
-    if all:
-        return get_docs("articles",None)
+    current_user_preferences:List[Preference] = get_docs("preferences",("user_id","==",user_id))
+    # article_idをkeyにしたdictに変換
+    preferences_dict = {pref.article_id: pref for pref in current_user_preferences}
+
+    # articlesを取得。デフォルトはユーザー嗜好が0以上のみ。all=Trueなら全て取得
+    articles:List[Article]
+    if all==True:
+        articles = get_docs("articles",None)
     else:
-        current_user_preferences:List[Preference] = get_docs("preferences",("user_id","==",user_id))
-        plus_article_ids = [p.article_id for p in current_user_preferences if p.ai_score >= 0]
-        return get_docs("articles",("article_id","IN",plus_article_ids))
+        plus_article_ids = [p.article_id for p in current_user_preferences if p.ai_score >= 3]
+        articles = get_docs("articles",("article_id","IN",plus_article_ids))
+
+    # 各記事にcurrentUserのai_scoreとuser_scoreをつける
+    records = [
+        asdict(art) | {
+            "ai_score": preferences_dict.get(art.article_id, Preference()).ai_score,
+            "user_score": preferences_dict.get(art.article_id, Preference()).user_score
+        }
+        for art in articles
+    ]
+
+    return records
 
 
 ### ユーザーが評価した点数でAIをトレーニング
