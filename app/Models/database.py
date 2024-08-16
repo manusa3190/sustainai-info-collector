@@ -106,8 +106,8 @@ def get_doc(table_name:str,id:str):
 
         return record # 修正必要
 
-def get_docs(table_name:str,query:Optional[Tuple[str,str,str]]):
-    target_class = TABLES[table_name]
+def get_docs(table_name:str,query:Optional[Tuple[str,str,Any]]):
+    the_class = TABLES[table_name]
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
 
@@ -119,11 +119,18 @@ def get_docs(table_name:str,query:Optional[Tuple[str,str,str]]):
         elif(query[1]=='=='):
             results = c.execute(f'''SELECT * FROM {table_name} WHERE {query[0]} = ?''', (query[2],))
 
-        items = []
+        elif(query[1]=='IN'):
+            placeholders = ', '.join([ "?" for e in query[2]])
+            results = c.execute(f'''SELECT * FROM {table_name} WHERE {query[0]} IN ({placeholders})''', (query[2],))
 
+        elif(query[1]=='NOT IN'):
+            placeholders = ', '.join([ "?" for e in query[2]])
+            results = c.execute(f'''SELECT * FROM {table_name} WHERE {query[0]} NOT IN ({placeholders})''', (query[2],))
+
+        items = []
         for values in results.fetchall():
-            d:Dict = {f.name: convert_value(value) for f, value in zip(fields(Article), values)}
-            items.append(target_class(**d))
+            d:Dict = {f.name: convert_value(value) for f, value in zip(fields(the_class), values)}
+            items.append(the_class(**d))
 
         return items
 

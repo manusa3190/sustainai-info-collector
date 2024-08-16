@@ -27,18 +27,6 @@ def get_sqlite_type(field_type: Type) -> str:
     }
     return type_map.get(field_type, 'TEXT')
 
-# def setup_database(table_name:str):
-#     with sqlite3.connect('articles.db') as conn:
-#         c = conn.cursor()
-
-#         table_fields = fields(Article)
-#         column_definitions = [f"{field.name} {get_sqlite_type(field.type)}" for field in table_fields]
-
-#         c.execute(f'''
-#             CREATE TABLE IF NOT EXISTS {table_name} (
-#                 {", ".join(column_definitions)}
-#             )
-#         ''')
 
 def convert_value(value: Any) -> str:
     if isinstance(value, datetime):

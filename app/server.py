@@ -6,21 +6,18 @@ from langserve import add_routes
 from langchain.tools import Tool
 from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from langchain.agents import initialize_agent, Tool, AgentType
+# from langchain.agents import initialize_agent, Tool, AgentType
 
-from typing import Optional, List, Type, Dict, Union
-
-import sqlite3
-from datetime import datetime, timedelta
+from typing import Optional, List
 
 # from .database import Article, fetch_recent_articles
-from .Models.articles import Article, fetch_recent_articles, getItems, updateItem
+from .Models.articles import Article
+from .Models.users import User
+from .Models.preferences import Preference
 
-from .Models.preferences import Preference, setup_database as initialize_preferences, adjust_score
+from .Models.database import setup_database, get_doc, get_docs, set_doc, update_doc
 
-from dataclasses import dataclass, field, fields
-
-import json
+from dataclasses import asdict
 
 from openai import OpenAI
 
@@ -33,15 +30,6 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-completion = client.chat.completions.create(
-    model="gpt-3.5-turbo-0125",
-    messages=[
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "What is the capital of the United States?"},
-        {"role": "system", "content": "The capital of the United States is Washington, D.C."},
-    ],
-)
-
 app = FastAPI()
 
 # CORSの設定
@@ -53,55 +41,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def getRecentlyArticles():
-    '''一週間以内に取得したデータを返します'''
-    now = datetime.now()
-    one_week_ago = now - timedelta(days=7)
-
-    # データベースに接続してクエリを実行
-    with sqlite3.connect('articles.db') as conn:
-        c = conn.cursor()
-        c.execute('''
-            SELECT * FROM articles
-            WHERE release_date >= ?
-        ''', (one_week_ago.isoformat(),))
-
-        # 結果を取得
-        rows = c.fetchall()
-
-    return rows
-
-
-tools = [
-    Tool(
-        name="一週間以内に取得したデータを返す",
-        func=getRecentlyArticles,
-        description="一週間以内に取得したデータを返します"
-    )
-]
-
-llm = ChatOpenAI(model="gpt-4o-mini")
-
-agent = initialize_agent(
-    tools, 
-    llm, 
-    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, 
-    verbose=True
-    )
-
 model = ChatOpenAI(model="gpt-4o-mini")
 
-template = """
-以下は環境省のニュース記事のリストです:
-{news_items}
-
-これらの記事のタイトルとリンクを箇条書きでリストアップしてください。
-"""
-
-prompt = PromptTemplate(
-    input_variables=["news_items"],
-    template=template
-)
 
 @app.get("/")
 async def redirect_root_to_docs():
@@ -110,7 +51,6 @@ async def redirect_root_to_docs():
 # 完成
 @app.get("/setup_tables")
 async def setup_tables():
-    from .Models.database import setup_database
     setup_database()
 
 # 完成
@@ -125,7 +65,6 @@ def scrape_moe():
 @app.post("/extract_keywords_with_ai")
 async def extract_keywords_with_ai():
     # DBからデータ取り出し"
-    from .Models.database import get_docs, set_doc
     items:List[Article] = get_docs('articles',("keywords","==","[]"))
 
     # プロンプトの作成
@@ -149,8 +88,8 @@ async def extract_keywords_with_ai():
         )
 
         chain = prompt | model
-        result = chain.invoke(input=item.content)
-        keywords_str = result.content
+        result = chain.invoke(input={"content":item.content})
+        keywords_str = str(result.content)
 
         set_doc('articles',{'article_id':item.article_id,'keywords':keywords_str})
 
@@ -158,53 +97,83 @@ async def extract_keywords_with_ai():
 
 # ユーザーの嗜好に基づいて、記事をスコアリング
 def set_score_to_articles():
+    user_id = "user1"
+    
+    # 記事一覧から、カレントユーザーの嗜好がまだ評価されていない記事を取り出す
+    preferences_of_current_user:List[Preference] = get_docs("preferences",("user_id","==",user_id))
+    graded_article_ids = [ p.article_id for p in preferences_of_current_user]
+    articles:List[Article] = get_docs("articles",("article_id","NOT IN",graded_article_ids))
+
+
     # preference.dbのuser1から、そのユーザーの嗜好性（キーワードと±10点のスコア）を取得
-
+    user:User = get_doc("preferences",user_id)
+    preference = user.preference
+    
     # ユーザーの嗜好性に基づいて、記事をスコアリング
+    template = """
+    あなたはユーザーの関心事に基づいてニュース記事を採点するAIです。
 
-    # DBへの書き込み
-    pass
+    # 要望
+    ユーザーは大量の記事から、自分にとって関心のある記事だけをフィルターをかけて読みたいと思っています。
+    ユーザーは、普段は0点以上の記事を読みますが、時間がない時にはプラス点数のついた記事だけを読みます。
+    マイナス点数がついた記事は邪魔なので、普段は表示しません。
+    このような使い方ができるよう、ユーザーの関心事に合わせて、ニュース記事に採点してください。
 
-# articlesを取得
+    # 採点方法
+    ユーザーの関心については以下のようなキーワードと関心度合いのペアで渡します。
+    例:'地域経済:2,製造業:1,補助金:-2'
+    各キーワードに対する関心度合いは-2,-1,0,1,2の5段階で、プラスは関心があるのでぜひ表示してほしいトピック、マイナスは邪魔なので除外してほしいトピックを示しています。
+    単純に単語の有無で判断するのではなく、意味的な距離や上位・下位概念も加味してください
+
+    # データ
+    文章:{content}
+    ユーザーの関心:{preference}
+
+    # 出力
+    -2から2の5段階評価です。
+    -2はユーザーにとって邪魔なので表示させない、0は中立、2はユーザーにとって重要です。
+    数値だけを出力してください
+    """
+
+    prompt = PromptTemplate.from_template(template=template)
+
+    chain = prompt | model
+
+    for article in articles:
+        new_pref:Preference = Preference()
+        result = chain.invoke(input={"content":article.content,"preference":preference})
+        new_pref.ai_score = int(str(result.content))
+
+        # DBへの書き込み。本当はまとめてやるべき
+        set_doc("preferences", asdict(new_pref))
+
+
+# articlesを取得。デフォルトはユーザー嗜好が0以上のみ
 @app.get("/articles")
-async def articles():
-    field_names = [ f.name for f in fields(Article)]
-    # print(fieldNames)
-    with sqlite3.connect('articles.db') as conn:
-        c = conn.cursor()
-        c.execute("SELECT * FROM articles")
-        rows = c.fetchall()
+async def articles(all:Optional[bool] = False):
+    user_id = "user1"
+    if all:
+        return get_docs("articles",None)
+    else:
+        current_user_preferences:List[Preference] = get_docs("preferences",("user_id","==",user_id))
+        plus_article_ids = [p.article_id for p in current_user_preferences if p.ai_score >= 0]
+        return get_docs("articles",("article_id","IN",plus_article_ids))
 
-        records = [
-            {field_name: value for field_name, value in zip(field_names, row)}
-            for row in rows
-        ]
-        return records
 
 ### ユーザーが評価した点数でAIをトレーニング
-@dataclass
-class Item:
-    id:str
-    user_scored_interest_level: str
-
-
-from typing import List
 @app.post("/articles_training/")
-async def articles_training(items:List[Item]):
-    print('received data:',items)
+async def articles_training(preferences:List[Preference]):
+    print('received data:',preferences)
 
     return 'OK'
 
-### ユーザーが好むor好まないキーワードを保存
-@app.get('/setup_pref')
-async def setup_pref():
-    initialize_preferences('user1')
 
-add_routes(
-    app,
-    prompt | model,
-    path="/question"
-)
+
+# add_routes(
+#     app,
+#     prompt | model,
+#     path="/question"
+# )
 
 if __name__ == "__main__":
     import uvicorn
