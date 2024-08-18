@@ -5,7 +5,7 @@ from typing import Optional, List
 
 @dataclass
 class Article:
-    article_id: str = ""
+    article_id: int = 0
     acquition_date: datetime = datetime.now()
     publish_date: Optional[datetime] = None
     source: str = ""

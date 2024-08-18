@@ -8,7 +8,7 @@ from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 # from langchain.agents import initialize_agent, Tool, AgentType
 
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 # from .database import Article, fetch_recent_articles
 from .Models.articles import Article
@@ -98,7 +98,7 @@ async def extract_keywords_with_ai():
 # ユーザーの嗜好に基づいて、記事をスコアリング
 @app.get("/set_score_to_articles")
 def set_score_to_articles()->None:
-    user_id = "user1"
+    user_id = 1
     
     # 記事一覧から、カレントユーザーの嗜好がまだ評価されていない記事を取り出す
     preferences_of_current_user:List[Preference] = get_docs("preferences",("user_id","==",user_id))
@@ -140,11 +140,10 @@ def set_score_to_articles()->None:
     chain = prompt | model
 
     data = []
-    for i, article in enumerate(articles):
+    for article in articles:
         result = chain.invoke(input={"content":article.content,"preference":preference})
 
         new_pref:Preference = Preference(
-            preference_id= i ,
             user_id = user_id,
             article_id = article.article_id,
             ai_score = result.content,
@@ -156,16 +155,16 @@ def set_score_to_articles()->None:
     set_docs("preferences",data)
 
 
-#【完成】 articlesを取得。デフォルトはユーザー嗜好が0以上のみ
+#【完成】 articlesを取得。デフォルトはユーザー嗜好が0以上のみ。all=Trueなら全て取得
 @app.get("/articles")
 async def articles(all:Optional[bool] = False):
     records = []
-    user_id = "user1"
+    user_id = 1
+
     current_user_preferences:List[Preference] = get_docs("preferences",("user_id","==",user_id))
     # article_idをkeyにしたdictに変換
-    preferences_dict = {pref.article_id: pref for pref in current_user_preferences}
-
-    # articlesを取得。デフォルトはユーザー嗜好が0以上のみ。all=Trueなら全て取得
+    preferences_dict = {pref.article_id: pref for pref in current_user_preferences}    
+    
     articles:List[Article]
     if all==True:
         articles = get_docs("articles",None)
@@ -184,13 +183,24 @@ async def articles(all:Optional[bool] = False):
 
     return records
 
+@app.get("/article")
+async def article(article_id:str):
+    user_id = 1
+    article:Article = get_doc("articles",article_id)
+    current_user_preferences:Preference = get_docs("preferences",("user_id",'==',user_id))
+    preferences_dict = {pref.article_id: pref for pref in current_user_preferences}
+    res = asdict(article) | {
+            "ai_score"  : preferences_dict.get(article.article_id, Preference()).ai_score,
+            "user_score": preferences_dict.get(article.article_id, Preference()).user_score
+        }
+    return res
 
 ### ユーザーが評価した点数でAIをトレーニング
-@app.post("/articles_training/")
-async def articles_training(preferences:List[Preference]):
-    print('received data:',preferences)
+@app.post("/training/")
+async def training(data:Dict[str,str]):
+    print('received data:',data)
 
-    return 'OK'
+    return {'result':'success','data':data}
 
 
 

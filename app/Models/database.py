@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, List, Type, Dict, Any, Tuple
+from typing import Optional, Union, List, Type, Dict, Any, Tuple
 import sqlite3
 from sqlite3 import Cursor
 
@@ -52,13 +52,18 @@ def parse_value(value: str):
     # その他のケースでは文字列のまま返す
     return value
 
-def setup_database():
+def setup_database(table_name:Optional[Union[str, List[str]]]=None):
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
 
         for table_name, the_class in TABLES.items():
             field_names = fields(the_class)
-            column_definitions = [f"{field.name} {get_sqlite_type(field.type)}" for field in field_names]
+
+            column_definitions = [
+                f"{field.name} {get_sqlite_type(field.type)}" if i > 0 
+                else f"{field.name}  TEXT PRIMARY KEY" 
+                for i, field in enumerate(field_names)  
+                ]
 
             c.execute(f'''
                 CREATE TABLE IF NOT EXISTS {table_name} (
@@ -168,32 +173,6 @@ def update_doc(table_name:str,data:Dict[str,Any]):
         #     values = [convert_value(value) for key, value in data.items() if key != key_name]
         #     values.append(data[key_name])
         
-
-
-# 【編集中】Dict型のdataを渡します。
-# def set_docs(table_name:str,datas:List[Dict[str,Any]]):
-#     with sqlite3.connect(DB_PATH) as conn:
-#         c = conn.cursor()
-
-#         key_name:str = str(fields(Article)[0])
-
-#         # 更新するフィールドと対応するプレースホルダーを動的に生成
-#         fieldNames = ', '.join([f"{key} = ?" for (i,key) in enumerate(data.keys()) if i != 0])
-        
-#         # クエリの生成 例: UPDATE articles SET keywords = ? WHERE id = ?
-#         query = f"UPDATE {table_name} SET {fieldNames} WHERE {key_name} = ?"
-        
-#         # プレースホルダーに入る値を準備（idは最後に渡す）例: ['["東京湾", "環境一斉調査"]', 'moe01']
-#         values = [convert_value(value) for key, value in data.items() if key != key_name]
-#         values.append(data[key_name])
-#         print(values)
-        
-#         # データベースの接続を確立してクエリを実行
-#         with sqlite3.connect(DB_PATH) as conn:
-#             c = conn.cursor()
-#             c.execute(query, values)
-#             conn.commit()
-
 
 # def save_to_sqlite(article_list: List[Article], db_path: str = 'articles.db'):
 #     columns = [field.name for field in fields(Article)]

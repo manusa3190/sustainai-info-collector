@@ -4,11 +4,11 @@ from typing import Optional, List, Type
 
 @dataclass
 class Preference:
-    preference_id:str = ""
-    user_id:str = ""
+    preference_id:int = 0
+    user_id:int = 0
     created_at:datetime = datetime.now()
     updated_at:datetime = datetime.now()
-    article_id:str = ""
+    article_id:int = 0
     ai_score:int = 0
     user_score:int = 0
 
