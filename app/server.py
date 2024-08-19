@@ -8,7 +8,9 @@ from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 # from langchain.agents import initialize_agent, Tool, AgentType
 
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, TypedDict
+
+import json
 
 # from .database import Article, fetch_recent_articles
 from .Models.articles import Article
@@ -175,6 +177,7 @@ async def articles(all:Optional[bool] = False):
     # 各記事にcurrentUserのai_scoreとuser_scoreをつける
     records = [
         asdict(art) | {
+            "preference_id":preferences_dict.get(art.article_id, Preference()).preference_id,
             "ai_score": preferences_dict.get(art.article_id, Preference()).ai_score,
             "user_score": preferences_dict.get(art.article_id, Preference()).user_score
         }
@@ -190,17 +193,45 @@ async def article(article_id:str):
     current_user_preferences:Preference = get_docs("preferences",("user_id",'==',user_id))
     preferences_dict = {pref.article_id: pref for pref in current_user_preferences}
     res = asdict(article) | {
+            "preference_id":preferences_dict.get(article.article_id, Preference()).preference_id,
             "ai_score"  : preferences_dict.get(article.article_id, Preference()).ai_score,
             "user_score": preferences_dict.get(article.article_id, Preference()).user_score
         }
     return res
 
 ### ユーザーが評価した点数でAIをトレーニング
+class PreferenceData(TypedDict):
+    preference_id: int
+    user_score: int
+    preference_adjust: Dict[str, int]
+
 @app.post("/training/")
 async def training(data:Dict[str,str]):
-    print('received data:',data)
+    # preferenceにuser_scoreを書き込み
+    preference:Preference = get_doc("preferences",data["preference_id"])
+    preference.user_score = int(data["user_score"])
+    set_doc("preferences", asdict(preference))
 
-    return {'result':'success','data':data}
+    # userのpreferenceの点数調整
+    user:User = get_doc("users",preference.user_id)
+    user_preference:Dict[str,int] = json.loads( user.preference)
+    
+    preference_adjust:Dict[str,int] = json.loads(data["preference_adjust"])
+
+    for k,v in preference_adjust.items():
+        p = user_preference.get(k)
+        user_preference[k] = p + v if p is not None else v
+    
+    user.preference = json.dumps(user_preference,ensure_ascii=False)
+    set_doc("users", asdict(user))
+
+    return {
+        'result':'success',
+        'data':{
+            'preference_id': preference.preference_id,
+            'ai_score':preference.ai_score,
+            'user_score':preference.user_score}
+    }
 
 
 

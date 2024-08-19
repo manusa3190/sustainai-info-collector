@@ -80,7 +80,6 @@ def set_doc(table_name:str,data:Dict[str,str]):
 
         results = c.execute(f'''SELECT * FROM {table_name} WHERE {key_name} = ?''', (data[key_name],))
         record = results.fetchone()
-        print(record)
 
         if record:
             # 更新するフィールドと対応するプレースホルダーを動的に生成
@@ -115,7 +114,7 @@ def set_docs(table_name:str,data:List[Dict[str,Any]] ):
 
 
 #  OK
-def get_doc(table_name:str,id:str):
+def get_doc(table_name:str,id: Union[str,int] ):
     the_class = TABLES[table_name]
     key_name:str = fields(the_class)[0].name
 
