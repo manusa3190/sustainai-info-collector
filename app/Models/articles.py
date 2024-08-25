@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field, fields
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List,Union
 
 
 @dataclass
 class Article:
+    row_num:Union[None,int] = None
     article_id: int = 0
     acquition_date: datetime = datetime.now()
     publish_date: Optional[datetime] = None

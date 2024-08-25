@@ -4,7 +4,6 @@ import sqlite3
 from sqlite3 import Cursor
 
 from dataclasses import fields
-import dataclasses
 import json
 
 from .articles import Article
@@ -33,6 +32,8 @@ def convert_value(value: Any) -> str:
         return value.isoformat()  # datetimeをISOフォーマットの文字列に変換
     elif isinstance(value, list):
         return json.dumps(value,ensure_ascii=False)  # リストをJSON形式の文字列に変換
+    elif isinstance(value,dict):
+        return json.dumps(value,ensure_ascii=False)  # dictをJSON形式の文字列に変換
     return value  # その他の型はそのまま返す
 
 def parse_value(value: str):
@@ -88,6 +89,7 @@ def set_doc(table_name:str,data:Dict[str,str]):
             # プレースホルダーに入る値を準備（idは最後に渡す）例: ['["東京湾", "環境一斉調査"]', 'moe01']
             values = [convert_value(value) for key, value in data.items() if key != key_name]
             values.append(data[key_name])
+            print(values)
 
             # クエリの生成 例: UPDATE articles SET keywords = ? WHERE id = ?
             query = f"UPDATE {table_name} SET {fieldNames} WHERE {key_name} = ?"
@@ -127,7 +129,7 @@ def get_doc(table_name:str,id: Union[str,int] ):
         return the_class(**d)
 
 
-def get_docs(table_name:str,query:Optional[Tuple[str,str,Any]]):
+def get_docs(table_name:str,query:Union[Tuple[str,str,Any],None]=None):
     the_class = TABLES[table_name]
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()

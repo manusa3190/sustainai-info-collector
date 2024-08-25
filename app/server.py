@@ -93,82 +93,79 @@ async def extract_keywords_with_ai():
         result = chain.invoke(input={"content":item.content})
         keywords_str = str(result.content)
 
-        set_doc('articles',{'article_id':item.article_id,'keywords':keywords_str})
+        set_doc('articles',{'row_num':item.row_num,'keywords':keywords_str})
 
     return 'OK'
 
-# ユーザーの嗜好に基づいて、記事をスコアリング
+#【完成】ユーザーの嗜好に基づいて、記事をスコアリング
 @app.get("/set_score_to_articles")
 def set_score_to_articles()->None:
-    user_id = 1
-    
-    # 記事一覧から、カレントユーザーの嗜好がまだ評価されていない記事を取り出す
-    preferences_of_current_user:List[Preference] = get_docs("preferences",("user_id","==",user_id))
-    graded_article_ids = [ p.article_id for p in preferences_of_current_user]
-    articles:List[Article] = get_docs("articles",("article_id","NOT IN",graded_article_ids))
+    users:List[User] = get_docs('users')
 
-    # preference.dbのuser1から、そのユーザーの嗜好性（キーワードと±10点のスコア）を取得
-    user:User = get_doc("users",user_id)
-    preference = user.preference
-    
-    # ユーザーの嗜好性に基づいて、記事をスコアリング
-    template = """
-    あなたはユーザーの関心事に基づいてニュース記事を採点するAIです。
+    for user in users:
+        user_id = user.user_id
+        
+        # 記事一覧から、カレントユーザーの嗜好がまだ評価されていない記事を取り出す
+        preferences_of_current_user:List[Preference] = get_docs("preferences",("user_id","==",user_id))
+        graded_article_ids = [ p.article_id for p in preferences_of_current_user]
+        articles:List[Article] = get_docs("articles",("article_id","NOT IN",graded_article_ids))
+        
+        # ユーザーの嗜好性に基づいて、記事をスコアリング
+        template = """
+        あなたはユーザーの関心事に基づいてニュース記事を採点するAIです。
 
-    # 要望
-    ユーザーは大量の記事から、自分にとって重要な記事だけをフィルターをかけて読みたいと思っています。
-    ユーザーは、普段は3点以上の記事を読みますが、時間がない時には4点以上のついた記事だけを読みます。
-    2点以下がついた記事はユーザーにとって関係性がないので、普段は表示しません。
-    このような使い方ができるよう、ユーザーの関心事に合わせて、ニュース記事に採点してください。
+        # 要望
+        ユーザーは大量の記事から、自分にとって重要な記事だけをフィルターをかけて読みたいと思っています。
+        ユーザーは、普段は3点以上の記事を読みますが、時間がない時には4点以上のついた記事だけを読みます。
+        2点以下がついた記事はユーザーにとって関係性がないので、普段は表示しません。
+        このような使い方ができるよう、ユーザーの関心事に合わせて、ニュース記事に採点してください。
 
-    # 採点方法
-    ユーザーの関心については以下のようなキーワードと関心度合いのペアで渡します。
-    例:'地域経済:2,製造業:1,補助金:-2'
-    各キーワードに対する関心度合いは-2,-1,0,1,2の5段階で、プラスは関心があるので重要と採点してほしいトピック、マイナスは関係性がないので減点してほしいトピックを示しています。
-    単純に単語の有無で判断するのではなく、意味的な距離や上位・下位概念も加味してください。
+        # 採点方法
+        ユーザーの関心については以下のようなキーワードと関心度合いのペアで渡します。
+        例:'地域経済:2,製造業:1,補助金:-2'
+        各キーワードに対する関心度合いは-2,-1,0,1,2の5段階で、プラスは関心があるので重要と採点してほしいトピック、マイナスは関係性がないので減点してほしいトピックを示しています。
+        単純に単語の有無で判断するのではなく、意味的な距離や上位・下位概念も加味してください。
 
-    # データ
-    文章:{content}
-    ユーザーの関心:{preference}
+        # データ
+        文章:{content}
+        ユーザーの関心:{preference}
 
-    # 出力
-    1から5の5段階評価です。
-    1はユーザーにとって関係性が低い、3は中立、2はユーザーにとって重要な記事を意味します。
-    数値だけを出力してください
-    """
+        # 出力
+        1から5の5段階評価です。
+        1はユーザーにとって関係性が低い、3は中立、2はユーザーにとって重要な記事を意味します。
+        数値だけを出力してください
+        """
 
-    prompt = PromptTemplate.from_template(template=template)
+        prompt = PromptTemplate.from_template(template=template)
 
-    chain = prompt | model
+        chain = prompt | model
 
-    data = []
-    for article in articles:
-        result = chain.invoke(input={"content":article.content,"preference":preference})
+        data = []
+        for article in articles:
+            result = chain.invoke(input={"content":article.content,"preference":user.preference})
 
-        new_pref:Preference = Preference(
-            user_id = user_id,
-            article_id = article.article_id,
-            ai_score = result.content,
-            user_score = None
-        )
-        data.append( asdict(new_pref) )
+            new_pref:Preference = Preference(
+                user_id = user_id,
+                article_id = article.article_id,
+                ai_score = result.content,
+                user_score = None
+            )
+            data.append( asdict(new_pref) )
 
-    # DBへの書き込み
-    set_docs("preferences",data)
+        # DBへの書き込み
+        set_docs("preferences",data)
 
 
 #【完成】 articlesを取得。デフォルトはユーザー嗜好が0以上のみ。all=Trueなら全て取得
 @app.get("/articles")
-async def articles(all:Optional[bool] = False):
-    records = []
-    user_id = 1
-
+async def articles(user_id:str,all:Optional[bool] = False):
     current_user_preferences:List[Preference] = get_docs("preferences",("user_id","==",user_id))
+
     # article_idをkeyにしたdictに変換
     preferences_dict = {pref.article_id: pref for pref in current_user_preferences}    
     
     articles:List[Article]
-    if all==True:
+    if all is True:
         articles = get_docs("articles",None)
     else:
         plus_article_ids = [p.article_id for p in current_user_preferences if p.ai_score >= 3]
@@ -185,6 +182,16 @@ async def articles(all:Optional[bool] = False):
     ]
 
     return records
+
+@app.get("/user")
+async def user(user_id:int):
+    user = get_doc('users',user_id)
+    return user
+
+@app.post("/user_post")
+async def user_post(data:Dict):
+    set_doc('users',data)
+    return {'result':'success','data':data}
 
 @app.get("/article")
 async def article(article_id:str):

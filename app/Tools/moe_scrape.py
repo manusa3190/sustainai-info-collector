@@ -9,7 +9,7 @@ from playwright.async_api import async_playwright, ElementHandle
 import requests
 from bs4 import BeautifulSoup
 
-from ..Models.database import set_doc
+from ..Models.database import set_doc, get_docs
 from ..Models.articles import Article
 
 
@@ -99,6 +99,7 @@ async def get_news(article_id_list:List[str]) -> List[Article]:
             summary = await summary_area.inner_text() if summary_area is not None else None
             article.summary = summary
 
+            # print(article)
             article_list.append(article)
     
     return article_list
@@ -108,7 +109,9 @@ def main():
     news_list =  特定期間のnews_idを取得(5)
     news = asyncio.run(get_news(news_list))
     for n in news:
-        set_doc('articles',asdict(n))
+        docs = get_docs('articles',('article_id','==',n.article_id))
+        if len(docs)==0:
+            set_doc('articles',asdict(n))
 
 # if __name__ == '__main__':
 #     main()
