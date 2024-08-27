@@ -142,6 +142,12 @@ def get_docs(table_name:str,query:Union[Tuple[str,str,Any],None]=None):
         elif(query[1]=='=='):
             results = c.execute(f'''SELECT * FROM {table_name} WHERE {query[0]} = ?''', (query[2],))
 
+        elif(query[1]=='>'):
+            results = c.execute(f'''SELECT * FROM {table_name} WHERE {query[0]} > ?''', (query[2],))
+
+        elif(query[1]=='>='):
+            results = c.execute(f'''SELECT * FROM {table_name} WHERE {query[0]} >= ?''', (query[2],))
+
         elif(query[1]=='IN'):
             placeholders = ', '.join([ "?" for e in query[2]])
             results = c.execute(f'''SELECT * FROM {table_name} WHERE {query[0]} IN ({placeholders})''', query[2])

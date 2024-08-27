@@ -8,9 +8,10 @@ from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 # from langchain.agents import initialize_agent, Tool, AgentType
 
-from typing import Optional, List, Dict, TypedDict
+from typing import Optional, List, Dict, TypedDict, Any
 
 import json
+from datetime import datetime, timedelta
 
 # from .database import Article, fetch_recent_articles
 from .Models.articles import Article
@@ -158,18 +159,25 @@ def set_score_to_articles()->None:
 
 #【完成】 articlesを取得。デフォルトはユーザー嗜好が0以上のみ。all=Trueなら全て取得
 @app.get("/articles")
-async def articles(user_id:str,all:Optional[bool] = False):
-    current_user_preferences:List[Preference] = get_docs("preferences",("user_id","==",user_id))
+async def articles(user_id:str, source:str, acquition_duration:int,ai_score:int,user_score:int,word:str):
 
+    today = datetime.today()
+    acquition_after_date = today - timedelta(days=30*acquition_duration)
+    acquition_after_date = acquition_after_date.strftime('%Y-%m-%d')
+
+    articles = get_docs("articles",("acquition_date",">",acquition_after_date))
+
+    # sourceでフィルタ
+    source = json.loads(source)    
+    articles = [ a for a in articles if a.source in source ]
+
+    # wordでフィルタ
+    articles = [ a for a in articles if word in a.content ]
+
+    # ユーザーの嗜好性を取得
+    current_user_preferences:List[Preference] = get_docs("preferences",("user_id","==",user_id))
     # article_idをkeyにしたdictに変換
-    preferences_dict = {pref.article_id: pref for pref in current_user_preferences}    
-    
-    articles:List[Article]
-    if all is True:
-        articles = get_docs("articles",None)
-    else:
-        plus_article_ids = [p.article_id for p in current_user_preferences if p.ai_score >= 3]
-        articles = get_docs("articles",("article_id","IN",plus_article_ids))
+    preferences_dict = {pref.article_id: pref for pref in current_user_preferences}
 
     # 各記事にcurrentUserのai_scoreとuser_scoreをつける
     records = [
@@ -181,7 +189,19 @@ async def articles(user_id:str,all:Optional[bool] = False):
         for art in articles
     ]
 
-    return records
+    # ai_scoreでフィルタ
+    records = [ r for r in records if r["ai_score"] >= ai_score]
+
+    # user_scoreでフィルタ
+    if user_score == 0: return records
+
+    res = []    
+    for r in records:
+        if r["user_score"] is not None:
+            if r["user_score"] >= user_score:
+                res.append(r)
+    return res
+
 
 @app.get("/user")
 async def user(user_id:int):
